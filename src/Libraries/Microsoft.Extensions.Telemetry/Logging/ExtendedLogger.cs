@@ -288,7 +288,7 @@ internal sealed partial class ExtendedLogger : ILogger
         while (jitRedactors != null)
         {
             var next = jitRedactors.Next;
-            jitRedactors.Return();
+            jitRedactors.ReturnIfRedacted();
             jitRedactors = next;
         }
 

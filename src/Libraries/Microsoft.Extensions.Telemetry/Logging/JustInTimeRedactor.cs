@@ -14,7 +14,7 @@ namespace Microsoft.Extensions.Logging;
 /// <summary>
 /// Performs delayed redaction in order to avoid allocating intermediate strings and enabling redacting from span to span when possible.
 /// </summary>
-internal sealed class JustInTimeRedactor : IResettable
+internal sealed class JustInTimeRedactor : IResettable, IDisposable, ICloneable
 #if NET6_0_OR_GREATER
     , ISpanFormattable
 #else
@@ -28,6 +28,7 @@ internal sealed class JustInTimeRedactor : IResettable
     private Redactor? _redactor;
     private string _discriminator = string.Empty;
     private object? _value;
+    private bool _hasRedacted;
 
     public static JustInTimeRedactor Get(object? value, Redactor redactor, string discriminator)
     {
@@ -40,15 +41,28 @@ internal sealed class JustInTimeRedactor : IResettable
         return jr;
     }
 
-    public void Return() => _pool.Return(this);
-
     public JustInTimeRedactor? Next { get; set; }
+
+    public void Return()
+    {
+        _pool.Return(this);
+    }
+
+    public void ReturnIfRedacted()
+    {
+        if (_hasRedacted)
+        {
+            Return();
+        }
+    }
 
     public override string ToString() => ToString(null, CultureInfo.InvariantCulture);
 
     [SkipLocalsInit]
     public string ToString(string? format, IFormatProvider? formatProvider)
     {
+        _hasRedacted = true;
+
         if (_discriminator.Length == 0)
         {
             return _redactor!.Redact(_value, format, formatProvider);
@@ -60,6 +74,8 @@ internal sealed class JustInTimeRedactor : IResettable
 
     public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
     {
+        _hasRedacted = true;
+
         if (_discriminator.Length == 0)
         {
             return _redactor!.TryRedact(_value, destination, out charsWritten, format, provider);
@@ -73,7 +89,18 @@ internal sealed class JustInTimeRedactor : IResettable
         _value = null;
         _redactor = null;
         _discriminator = string.Empty;
+        _hasRedacted = false;
         return true;
+    }
+
+    void IDisposable.Dispose()
+    {
+        ReturnIfRedacted();
+    }
+
+    object ICloneable.Clone()
+    {
+        return this;
     }
 
     [SkipLocalsInit]
